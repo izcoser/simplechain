@@ -1,6 +1,6 @@
 # simplechain
 
-Minimal local blockchain implementation in Python created with the goal of reinforcing fundamentals.
+Minimal local blockchain implementation in Python.
 
 ## Progress
 
@@ -9,3 +9,4 @@ Minimal local blockchain implementation in Python created with the goal of reinf
 * [ ] Block mining
 * [ ] Persistence after restart
 * [ ] Proof of Work for block creation 
+* [ ] Smart Contract support.
