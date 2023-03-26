@@ -1,97 +1,346 @@
-from ecdsa import SigningKey, VerifyingKey, SECP256k1, BadSignatureError
 import copy
+from eth_account import Account as web3_account
+from eth_account.messages import encode_defunct
+from hexbytes import HexBytes
+from time import time
+import hashlib
+import json
+import os
 
 # Y(S, T)= S'
-# Initial blockchain state: all addresses have 0 coins,
-# except address 0 which has `MAX_SUPPLY`.
-
-# Address private keys `pk` are 32 bytes byte string.
-# Addresses are SigningKey.from_string(pk, curve=SECP256k1).verifying_key.to_string().
-# Addresses can send coins between one another.
 
 MAX_SUPPLY = 1000
 ADDR_COUNT = 256
 
 
-def to_bytes(num: int) -> bytes:
-    return (num).to_bytes(16, byteorder="big")
+class BadSignatureException(Exception):
+    "Raised when a transaction is not signed by the from address"
+    pass
 
 
-def address(pk: bytes) -> bytes:
-    return SigningKey.from_string(pk, curve=SECP256k1).verifying_key.to_string()
-
-
-class Account:
-    "Holds information about an account."
-
-    def __init__(self, _pk: bytes):
-        self.pk = _pk
-        self.address = address(_pk)
-
-
-class State:
-    "Holds the state of the blockchain."
-
-    def __init__(self):
-        self.balances = {bytes(str(i).zfill(32).encode()): 0 for i in range(ADDR_COUNT)}
-        self.balances[bytes(str(0).zfill(32).encode())] = MAX_SUPPLY
-        self.nonces = {bytes(str(i).zfill(32).encode()): 0 for i in range(ADDR_COUNT)}
+class AccountNotFound(Exception):
+    "Raised when an account is not found on the list of accounts."
+    pass
 
 
 class Transaction:
     "Represents a transaction."
 
     def __init__(
-        self, _fr: bytes, _to: bytes, _amount: int, _nonce: int, _signature: bytes
+        self,
+        _fr: str,
+        _to: str,
+        _amount: float,
+        _nonce: int,
+        _signature: str,
+        _data: str,
+        _gas_price: float,
     ):
         self.fr = _fr
         self.to = _to
         self.amount = _amount
         self.nonce = _nonce
         self.signature = _signature
+        self.data = _data
+        self.gas_price = _gas_price
 
-    def verify_signature(self):
+    def verify_signature(self) -> bool:
         try:
-            vk = VerifyingKey.from_string(self.fr, SECP256k1)
-            message = self.fr + self.to + to_bytes(self.amount) + to_bytes(self.nonce)
-            vk.verify(self.signature, message)
+            message = encode_defunct(
+                text=f"{self.fr}{self.to}({self.amount})({self.nonce})({self.gas_price})({self.data})"
+            )
+            if self.fr != web3_account.recover_message(
+                message, signature=self.signature
+            ):
+                raise BadSignatureException
             return True
-        except BadSignatureError:
+        except BadSignatureException:
             return False
 
-
-def create_transaction(pk: bytes, to: bytes, amount: int, nonce: int) -> Transaction:
-    fr = address(pk)
-    message = fr + to + to_bytes(amount) + to_bytes(nonce)
-    signature = SigningKey.from_string(pk, SECP256k1).sign(message)
-    return Transaction(fr, to, amount, nonce, signature)
+    def get_tx_hash(self) -> str:
+        return hashlib.sha256(
+            f"{self.fr}{self.to}({self.amount})({self.nonce})({self.gas_price})({self.data})".encode()
+        ).hexdigest()
 
 
-def mine_block(state: State, transactions: list[Transaction]):
-    for t in transactions:
-        if (
-            t.amount <= state.balances[t.fr]
-            and t.verify_signature()
-            and t.nonce > state.nonces[t.fr]
-        ):
-            state.balances[t.fr] -= t.amount
-            state.balances[t.to] += t.amount
-            state.nonces[t.fr] += 1
+class Account:
+    "Holds information about an account."
+    """ Address: 64 hexadecimal characters;
+        Private Key;
+        Nonce: a transaction counter starting at 0;
+        Balance;
+        Contract Code;
+        Storage (empty by default). 
+
+        For now, I'm going to use the web3 library to go from private key to address, because this process seems quite complex
+        to do with the ecdsa library. But for a better understanding, this should be done with ecdsa.
+        In that case, I would go from private key -> public key -> address.
+    """
+
+    def __init__(
+        self,
+        _private_key: str,
+        _nonce: int = 0,
+        _balance: float = 0,
+        _code: str = "",
+        _storage: str = "",
+    ):
+        assert len(_private_key) == 66
+        self.private_key = _private_key
+        self.address = web3_account.from_key(_private_key).address
+        self.nonce = _nonce
+        self.balance = _balance
+        self.code = _code
+        self.storage = _storage
+
+    def set_balance(self, _balance):
+        self.balance = _balance
+
+    def send_transaction(
+        self, to: str, amount: float, data: str, gas_price: float
+    ) -> Transaction:
+        message = encode_defunct(
+            text=f"{self.address}{to}({amount})({self.nonce})({gas_price})({data})"
+        )
+        signature = (
+            web3_account.from_key(self.private_key).sign_message(message).signature
+        )
+        return Transaction(
+            _fr=self.address,
+            _to=to,
+            _amount=amount,
+            _nonce=self.nonce,
+            _signature=signature,
+            _data=data,
+            _gas_price=gas_price,
+        )
+
+    def __str__(self) -> str:
+        return f"Addr: {self.address[:5]}...{self.address[-3:]}, Balance: {self.balance}, Nonce: {self.nonce}, PK: {self.private_key[:5]}...{self.private_key[-3:]}"
+
+    def serialize(self) -> str:
+        account_json = {
+            "private_key": self.private_key,
+            "address": self.address,
+            "nonce": self.nonce,
+            "balance": self.balance,
+            "code": self.code,
+            "storage": self.storage,
+        }
+        return json.dumps(account_json)
 
 
-def test_signatures():
-    pk = bytes(str(0).zfill(32).encode())
-    to = address(bytes(str(1).zfill(32).encode()))
-    tx = create_transaction(pk, to, 100, 1)
-    tx_bad = copy.deepcopy(tx)
-    tx_bad.signature += to_bytes(1)
+def get_account(accounts: list[Account], address: str) -> Account:
+    for a in accounts:
+        if a.address == address:
+            return a
+    raise AccountNotFound()
 
-    for t in [tx, tx_bad]:
-        if t.verify_signature():
-            print("Verified.")
+
+def generate_accounts() -> list[Account]:
+    return [Account("0x" + str(i + 1).zfill(64)) for i in range(ADDR_COUNT)]
+
+
+class Block:
+    def __init__(
+        self,
+        _number: int,
+        _timestamp: int,
+        _nonce: int,
+        _prev_hash: str,
+        _txs: list[Transaction],
+    ):
+        self.number = _number
+        self.timestamp = _timestamp
+        self.nonce = _nonce
+        self.prev_hash = _prev_hash
+        self.txs = _txs
+
+    def __str__(self) -> str:
+        return f"Block {self.number}, Timestamp: {self.timestamp}, Nonce: {self.nonce}, PrevHash: {self.prev_hash[:5]}...{self.prev_hash[-3:]}, {len(self.txs)} txs."
+
+    def get_block_hash(self) -> str:
+        if self.nonce == -1:  # block was quick synced and is not full:
+            return (
+                self.prev_hash
+            )  # prev_hash here is actually the block's hash, as synced.
         else:
-            print("Bad sig.")
+            txs_str = "\n".join([tx.get_tx_hash() for t in self.txs])
+            return hashlib.sha256(
+                f"Block {self.number}, Timestamp: {self.timestamp}, Nonce: {self.nonce}, PrevHash: {self.prev_hash}, Tx Hashes: {txs_str}".encode()
+            ).hexdigest()
+
+    # Will try to find a nonce such that the block hash ends with {difficulty} zeros.
+    def mine_nonce(self, target):
+        i = 0
+        print(f"Looking for nonce such that hash < {target}")
+        while True:
+            self.nonce = i
+            self.timestamp = time()
+            h = self.get_block_hash()
+            if int(h, 16) < target:
+                print(f"Found nonce {i} that makes the hash < {target}:")
+                print(h)
+                break
+            else:
+                i += 1
+
+
+def execute_block(accounts: list[Account], block: Block):
+    for t in block.txs:
+        fr_account = get_account(accounts, t.fr)
+        to_account = get_account(accounts, t.to)
+        if (
+            t.amount <= fr_account.balance
+            and t.verify_signature()
+            and t.nonce == fr_account.nonce
+        ):
+            fr_account.balance -= t.amount
+            to_account.balance += t.amount
+            fr_account.nonce += 1
+
+
+class Blockchain:
+    def __init__(
+        self,
+        _difficulty: int,
+        _target: int,
+        _expected_block_time: float,
+        _recalculate_every_x_blocks: int,
+        _xth_last_block_time: float,  # for quick syncing
+        _blocks: list[Block],
+        _accounts: list[Account],
+    ):
+        self.difficulty = _difficulty
+        self.target = _target
+        self.expected_block_time = _expected_block_time
+        self.recalculate_every_x_blocks = _recalculate_every_x_blocks
+        self.xth_last_block_time = _xth_last_block_time
+        self.blocks = _blocks
+        self.genesis_time = time()
+        self.accounts = _accounts
+
+    def add_block(self, _block: Block):
+        assert int(_block.get_block_hash(), 16) < self.target
+        if len(self.blocks) > 0:
+            assert _block.prev_hash == self.blocks[-1].get_block_hash()
+            assert _block.number == self.blocks[-1].number + 1
+            assert _block.timestamp >= self.blocks[-1].timestamp
+
+        block_time = (
+            _block.timestamp - self.blocks[-1].timestamp
+            if len(self.blocks) > 0
+            else _block.timestamp - self.genesis_time
+        )
+        print(
+            f"Block {_block.number} added. Hash: ...{_block.get_block_hash()[-5:]}. Block time: {block_time}"
+        )
+        self.blocks.append(_block)
+
+        if (
+            self.blocks[-1].number % self.recalculate_every_x_blocks == 0
+            and self.blocks[-1].number > 0
+        ):
+            print("Recalculating difficulty.")
+            self.recalculate_difficulty()
+            self.recalculate_target()
+
+    def recalculate_difficulty(self):
+        last_block_time = self.blocks[-1].timestamp
+        xth_last_block_time = (
+            self.blocks[-self.recalculate_every_x_blocks].timestamp
+            if len(self.blocks) >= self.recalculate_every_x_blocks
+            else self.xth_last_block_time
+        )
+        self.difficulty *= (
+            self.recalculate_every_x_blocks * self.expected_block_time
+        ) / (last_block_time - xth_last_block_time)
+
+    def recalculate_target(self):
+        self.target = ((2**256) - 1) / self.difficulty
+
+    def save_state(self):
+        state = {
+            "difficulty": self.difficulty,
+            "target": self.target,
+            "recalculate_every_x_blocks": self.recalculate_every_x_blocks,
+            "xth_last_block_time": self.xth_last_block_time
+            or self.blocks[-self.recalculate_every_x_blocks].timestamp,
+            "last_block_time": self.blocks[-1].timestamp,
+            "last_block_number": self.blocks[-1].number,
+            "last_block_hash": self.blocks[-1].get_block_hash(),
+            "genesis_time": self.genesis_time,
+            "expected_block_time": self.expected_block_time,
+            "accounts": [a.serialize() for a in self.accounts],
+        }
+        with open("state.json", "w") as s:
+            s.write(json.dumps(state))
+
+    def load_state(self):
+        if os.path.isfile("state.json"):
+            with open("state.json", "r") as s:
+                state = json.load(s)
+            self.difficulty = state["difficulty"]
+            self.target = state["target"]
+            self.recalculate_every_x_blocks = state["recalculate_every_x_blocks"]
+            self.xth_last_block_time = state["xth_last_block_time"]
+            self.genesis_time = state["genesis_time"]
+            self.expected_block_time = state["expected_block_time"]
+            b = Block(
+                _number=state["last_block_number"],
+                _timestamp=state["last_block_time"],
+                _nonce=-1,
+                _prev_hash=state["last_block_hash"],
+                _txs=[],
+            )
+            self.blocks.append(b)
+            self.accounts = [
+                Account(
+                    _private_key=a["private_key"],
+                    _nonce=a["nonce"],
+                    _balance=a["balance"],
+                    _code=a["code"],
+                    _storage=a["storage"],
+                )
+                for a in [json.loads(s) for s in state["accounts"]]
+            ]
+        else:
+            b = Block(
+                _number=0,
+                _timestamp=self.genesis_time,
+                _nonce=-1,
+                _prev_hash="0" * 64,
+                _txs=[],
+            )
+            self.blocks.append(b)
+            self.accounts = generate_accounts()
 
 
 if __name__ == "__main__":
-    test_signatures()
+    blockchain = Blockchain(
+        _difficulty=1,
+        _target=(2**256) - 1,
+        _expected_block_time=2,
+        _recalculate_every_x_blocks=10,
+        _xth_last_block_time=0,  # init
+        _blocks=[],
+        _accounts=[],
+    )
+
+    blockchain.load_state()
+    accounts = blockchain.accounts
+
+    for i in range(30):
+        block = Block(
+            _number=blockchain.blocks[-1].number + 1,
+            _timestamp=0,
+            _nonce=0,
+            _prev_hash=blockchain.blocks[-1].get_block_hash(),
+            _txs=[],
+        )
+        execute_block(accounts, block)
+        block.mine_nonce(blockchain.target)
+        blockchain.add_block(block)
+        prev_hash = blockchain.blocks[-1].get_block_hash()
+
+    blockchain.save_state()
