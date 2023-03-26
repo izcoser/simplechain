@@ -11,6 +11,7 @@ import os
 
 MAX_SUPPLY = 1000
 ADDR_COUNT = 256
+ZERO_ADDRESS = "0x" + "0" * 40
 
 
 class BadSignatureException(Exception):
@@ -79,15 +80,20 @@ class Account:
 
     def __init__(
         self,
-        _private_key: str,
+        _private_key: str = "",  # if supplied, account becomes an EOA. Else it becomes a contract.
+        _address: str = "",  # derived from private key if EOA. Set explicitly if contract.
         _nonce: int = 0,
         _balance: float = 0,
         _code: str = "",
-        _storage: str = "",
+        _storage: dict = {},
     ):
-        assert len(_private_key) == 66
+        assert len(_private_key) in [66, 0]
         self.private_key = _private_key
-        self.address = web3_account.from_key(_private_key).address
+        self.address = (
+            _address
+            if _private_key == ""
+            else web3_account.from_key(_private_key).address
+        )
         self.nonce = _nonce
         self.balance = _balance
         self.code = _code
@@ -97,10 +103,10 @@ class Account:
         self.balance = _balance
 
     def send_transaction(
-        self, to: str, amount: float, data: str, gas_price: float
+        self, to: str, amount: float, data: dict = {}, gas_price: float = 1
     ) -> Transaction:
         message = encode_defunct(
-            text=f"{self.address}{to}({amount})({self.nonce})({gas_price})({data})"
+            text=f"{self.address}{to}({amount})({self.nonce})({gas_price})({json.dumps(data)})"
         )
         signature = (
             web3_account.from_key(self.private_key).sign_message(message).signature
@@ -138,7 +144,7 @@ def get_account(accounts: list[Account], address: str) -> Account:
 
 
 def generate_accounts() -> list[Account]:
-    return [Account("0x" + str(i + 1).zfill(64)) for i in range(ADDR_COUNT)]
+    return [Account(_private_key="0x" + str(i + 1).zfill(64)) for i in range(ADDR_COUNT)] + [Account(_address=ZERO_ADDRESS)]
 
 
 class Block:
@@ -198,6 +204,42 @@ def execute_block(accounts: list[Account], block: Block):
             fr_account.balance -= t.amount
             to_account.balance += t.amount
             fr_account.nonce += 1
+
+        if t.to == ZERO_ADDRESS and t.data != {}:  # contract creation
+            deploy_address = "0x" + hashlib.sha256((t.fr + str(t.nonce)).encode()).hexdigest()[:40]
+            print(f"Creating contract at address {deploy_address}")
+            fr_account = get_account(accounts, t.fr)
+            to_account = get_account(accounts, t.to)
+            code = t.data["code"]
+            storage = t.data["variables"]
+            accounts.append(
+                Account(_address=deploy_address, _code=code, _storage=storage)
+            )
+
+        elif to_account.code != "" and t.data != {}:  # contract call
+            to_execute = to_account.code + f'\n{t.data["call"]}'
+            keys_before = [k for k in to_account.storage]
+            print(f"Executing code:\n{to_execute}")
+            print(f"Storage before: {to_account.storage}")
+            exec(to_execute, to_account.storage)
+            to_account.storage = {k: to_account.storage[k] for k in keys_before}
+            print(f"Storage after: {to_account.storage}")
+            # will execute for example:
+
+
+"""
+    def a(x):
+        b += x
+    
+    a(5)
+"""
+"""
+data = {
+    "variables": {"a": 0, "b": 0},
+    "code": 'all functions here in plain text..'
+}
+When calling, the code will be ran with exec(code + \ny(k))
+"""
 
 
 class Blockchain:
@@ -329,8 +371,28 @@ if __name__ == "__main__":
 
     blockchain.load_state()
     accounts = blockchain.accounts
+    a = accounts[0]
+    data = {"code": "def set_a(n):\n\tglobal a; a = increment(n)\ndef increment(x):\n\t return x + 1", "variables": {"a": 0}}
 
-    for i in range(30):
+    data2 = {"call": "set_a(5)"}
+    tx = a.send_transaction(
+        to=ZERO_ADDRESS, amount=0, data=data
+    )
+    deploy_address = "0x" + hashlib.sha256((a.address + str(a.nonce)).encode()).hexdigest()[:40]
+    tx2 = a.send_transaction(to=deploy_address, amount=0, data=data2)
+    block = Block(
+        _number=blockchain.blocks[-1].number + 1,
+        _timestamp=0,
+        _nonce=0,
+        _prev_hash=blockchain.blocks[-1].get_block_hash(),
+        _txs=[tx, tx2],
+    )
+
+    execute_block(accounts, block)
+    block.mine_nonce(blockchain.target)
+    blockchain.add_block(block)
+
+    """for i in range(30):
         block = Block(
             _number=blockchain.blocks[-1].number + 1,
             _timestamp=0,
@@ -342,5 +404,5 @@ if __name__ == "__main__":
         block.mine_nonce(blockchain.target)
         blockchain.add_block(block)
         prev_hash = blockchain.blocks[-1].get_block_hash()
-
-    blockchain.save_state()
+    """
+    # blockchain.save_state()
