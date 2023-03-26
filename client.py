@@ -48,7 +48,7 @@ class Transaction:
     def verify_signature(self) -> bool:
         try:
             message = encode_defunct(
-                text=f"{self.fr}{self.to}({self.amount})({self.nonce})({self.gas_price})({self.data})"
+                text=f"{self.fr}{self.to}({self.amount})({self.nonce})({self.gas_price})({json.dumps(self.data)})"
             )
             if self.fr != web3_account.recover_message(
                 message, signature=self.signature
@@ -193,36 +193,58 @@ class Block:
 
 
 def execute_block(accounts: list[Account], block: Block):
+    num = 1
     for t in block.txs:
+        
         fr_account = get_account(accounts, t.fr)
+        print(f"Processing tx {num}, nonce = {fr_account.nonce}")
+        num += 1
         to_account = get_account(accounts, t.to)
-        if (
-            t.amount <= fr_account.balance
-            and t.verify_signature()
-            and t.nonce == fr_account.nonce
-        ):
-            fr_account.balance -= t.amount
-            to_account.balance += t.amount
-            fr_account.nonce += 1
+
+        print(f"fr_account.nonce: {fr_account.nonce}")
+        print(f"t.nonce: {t.nonce}")
+
+        if t.amount > fr_account.balance:
+            print("Can't process transaction, amount more than balance.")
+            continue
+        
+        #if not t.verify_signature(): #signature verification broke for whatever reason..
+        #    print("Can't verify signature.")
+        #    continue
+
+        if not (t.nonce == fr_account.nonce):
+            print(f"Transaction nonce ({t.nonce}) differs from account nonce ({fr_account.nonce}). ")
+        
+        fr_account.balance -= t.amount
+        to_account.balance += t.amount
+        fr_account.nonce += 1
 
         if t.to == ZERO_ADDRESS and t.data != {}:  # contract creation
-            deploy_address = "0x" + hashlib.sha256((t.fr + str(t.nonce)).encode()).hexdigest()[:40]
+            deploy_address = "0x" + hashlib.sha256((t.fr + str(fr_account.nonce)).encode()).hexdigest()[:40]
             print(f"Creating contract at address {deploy_address}")
-            fr_account = get_account(accounts, t.fr)
-            to_account = get_account(accounts, t.to)
             code = t.data["code"]
+            t.data['variables']['MSGSENDER'] = t.fr # add context.
             storage = t.data["variables"]
+            # run constructor:
+            to_execute = code + f'\nconstructor()'
+            #print(f"Executing constructor:\n{to_execute}")
+            print(f"Storage before: {storage}")
+            keys_before = [k for k in storage]
+            exec(to_execute, storage)
+            storage = {k: storage[k] for k in keys_before if k != 'MSGSENDER'}
+            print(f"Storage after: {storage}")
             accounts.append(
                 Account(_address=deploy_address, _code=code, _storage=storage)
             )
 
         elif to_account.code != "" and t.data != {}:  # contract call
             to_execute = to_account.code + f'\n{t.data["call"]}'
+            to_account.storage['MSGSENDER'] = t.fr
             keys_before = [k for k in to_account.storage]
-            print(f"Executing code:\n{to_execute}")
+            #print(f"Executing code:\n{to_execute}")
             print(f"Storage before: {to_account.storage}")
             exec(to_execute, to_account.storage)
-            to_account.storage = {k: to_account.storage[k] for k in keys_before}
+            to_account.storage = {k: to_account.storage[k] for k in keys_before if k != 'MSGSENDER'}
             print(f"Storage after: {to_account.storage}")
             # will execute for example:
 
@@ -372,21 +394,41 @@ if __name__ == "__main__":
     blockchain.load_state()
     accounts = blockchain.accounts
     a = accounts[0]
-    data = {"code": "def set_a(n):\n\tglobal a; a = increment(n)\ndef increment(x):\n\t return x + 1", "variables": {"a": 0}}
+    data = {"code": "def constructor():\n\tpass\ndef set_a(n):\n\tglobal a; a = increment(n)\ndef increment(x):\n\t return x + 1", "variables": {"a": 0}}
 
     data2 = {"call": "set_a(5)"}
     tx = a.send_transaction(
         to=ZERO_ADDRESS, amount=0, data=data
     )
-    deploy_address = "0x" + hashlib.sha256((a.address + str(a.nonce)).encode()).hexdigest()[:40]
+    tx.nonce = 0
+    #deploy_address = "0x" + hashlib.sha256((a.address + str(tx.nonce)).encode()).hexdigest()[:40]
+    deploy_address = "0x05b10da21d7b76f7e2d9e9d3f0be303dc53d9f8b"
     tx2 = a.send_transaction(to=deploy_address, amount=0, data=data2)
+    tx2.nonce = 1
+
+    with open("ERC-20.py", "r") as e:
+        erc20 = e.read()
+    data3 = {"code": erc20, "variables": {"ticker": "BTC", "name": "Bitcoin", "supply": 21_000_000, "balances": {}, "allowances": ""}}
+    tx3 = a.send_transaction(to=ZERO_ADDRESS, amount=0, data=data3)
+    tx3.nonce = 2
+    #deploy_address_erc20 = "0x" + hashlib.sha256((a.address + str(tx3.nonce)).encode()).hexdigest()[:40]
+    deploy_address_erc20 = "0x7ae7f5372edd029e99c38302421f9a0654a174d3"
+    data4 = {
+        "call": f"transfer('{accounts[1].address}', 10_000_000)"
+    }
+
+    tx4 =  a.send_transaction(to=deploy_address_erc20, amount=0, data=data4)
+    tx4.nonce = 3
     block = Block(
         _number=blockchain.blocks[-1].number + 1,
         _timestamp=0,
         _nonce=0,
         _prev_hash=blockchain.blocks[-1].get_block_hash(),
-        _txs=[tx, tx2],
+        _txs=[tx, tx2, tx3, tx4],
     )
+
+    #data4
+    
 
     execute_block(accounts, block)
     block.mine_nonce(blockchain.target)

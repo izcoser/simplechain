@@ -40,7 +40,7 @@ Contracts addresses are calculated from the SHA256 hash of the deployer address 
 For example:
 
 ```python
-    data = {"code": "def set_a(n):\n\tglobal a; a = increment(n)\ndef increment(x):\n\t return x + 1", "variables": {"a": 0}}
+    data = {"code": "def constructor():\n\tpass\ndef set_a(n):\n\tglobal a; a = increment(n)\ndef increment(x):\n\t return x + 1", "variables": {"a": 0}}
     data2 = {"call": "set_a(5)"}
     tx = a.send_transaction(
         to=ZERO_ADDRESS, amount=0, data=data
@@ -63,6 +63,13 @@ Storage before: {'a': 0}
 Storage after: {'a': 6}
 ```
 
+A simple ERC-20 implementation has also been done, the logs below show the creation of an ERC-20 called Bitcoin, with a ticker BTC and 21 million supply, and a transfer of 10 million afterwards:
+```
+Creating contract at address 0x7ae7f5372edd029e99c38302421f9a0654a174d3
+(code execution omitted)
+Storage before: {'ticker': 'BTC', 'name': 'Bitcoin', 'supply': 21000000, 'balances': {'0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf': 21000000}, 'allowances': '', 'MSGSENDER': '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf'}
+Storage after: {'ticker': 'BTC', 'name': 'Bitcoin', 'supply': 21000000, 'balances': {'0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf': 11000000, '0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF': 10000000}, 'allowances': ''}
+```
 In the current implementation, we just concatenate whatever the user passes as value of ```call``` to the contract code. This would allow ACE or Arbitrary Code Execution, but it's an easy fix. 
 Currently no network support.
 
@@ -74,6 +81,7 @@ Currently no network support.
 * [x] Persistence after restart.
 * [x] Proof of Work for block creation.
 * [X] Turing Complete Smart Contract support.
-* [ ] Create an ERC-20 clone and Uniswap clones.
+* [X] Create an ERC-20 clone.
+* [ ] Create a Uniswap clone.
 * [ ] Create socket communication between nodes & send transactions.
 * [ ] Create a mempool for pending transactions.
