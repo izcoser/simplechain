@@ -85,3 +85,4 @@ Currently no network support.
 * [ ] Create a Uniswap clone.
 * [ ] Create socket communication between nodes & send transactions.
 * [ ] Create a mempool for pending transactions.
+* [ ] Allow contracts to call other contracts.
