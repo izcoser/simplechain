@@ -1,21 +1,12 @@
-# import copy
-from eth_account import Account as web3_account
-
-from hexbytes import HexBytes
-from time import time
+from time import time, sleep
 import hashlib
-
 import os
-
+import sys
 from account.account import Account, ZERO_ADDRESS
 from transaction.transaction import Transaction
 from block.block import Block
 from blockchain.blockchain import Blockchain
-
-# Y(S, T)= S'
-
-MAX_SUPPLY = 1000
-
+from node.node import Node
 
 class AccountNotFound(Exception):
     "Raised when an account is not found on the list of accounts."
@@ -43,15 +34,15 @@ def deploy_contract(
     storage = {k: storage[k] for k in keys_before if k != "MSGSENDER"}
     accounts.append(Account(_address=deploy_address, _code=code, _storage=storage))
 
+
 def call_contract(accounts: list[Account], sender: str, address: str, call: str):
     acct = get_account(accounts, address)
-    to_execute = acct.code + f'\n{call}'
+    to_execute = acct.code + f"\n{call}"
     acct.storage["MSGSENDER"] = sender
     keys_before = [k for k in acct.storage]
     exec(to_execute, acct.storage)
-    acct.storage = {
-        k: acct.storage[k] for k in keys_before if k != "MSGSENDER"
-    }
+    acct.storage = {k: acct.storage[k] for k in keys_before if k != "MSGSENDER"}
+
 
 def read_contract(accounts: list[Account], address: str, variable: str = ""):
     acct = get_account(accounts, address)
@@ -60,7 +51,7 @@ def read_contract(accounts: list[Account], address: str, variable: str = ""):
     elif variable in acct.storage:
         print(acct.storage[variable])
     else:
-        print(f'Variable {variable} not found in contract {address}')
+        print(f"Variable {variable} not found in contract {address}")
 
 
 def get_account(accounts: list[Account], address: str) -> Account:
@@ -98,7 +89,6 @@ def execute_block(accounts: list[Account], block: Block):
             deploy_address = (
                 "0x" + hashlib.sha256((t.fr + str(t.nonce)).encode()).hexdigest()[:40]
             )
-            print(f"Creating contract at address {deploy_address}")
             deploy_contract(
                 t.fr, t.data["code"], t.data["variables"], deploy_address, accounts
             )
@@ -121,20 +111,88 @@ data = {
 When calling, the code will be ran with exec(code + \ny(k))
 """
 
-if __name__ == "__main__":
-    blockchain = Blockchain(
-        _difficulty=1,
-        _target=(2**256) - 1,
-        _expected_block_time=2,
-        _recalculate_every_x_blocks=10,
-        _xth_last_block_time=0,  # init
-        _blocks=[],
-        _accounts=[],
-    )
+def get_node_port(args: list[str]) -> int:
+    for a in args:
+        if a.startswith('--port='):
+            return int(a.replace('--port=', ''))
+    return -1
 
-    blockchain.load_state()
-    accounts = blockchain.accounts
-    a = accounts[0]
+def get_peers_ports(args: list[str]) -> list[int]:
+    for a in args:
+        if a.startswith('--peers='):
+            return [int(i) for i in a.replace('--peers=', '').split(',')]
+    return []
+
+LOCALHOST = "127.0.0.1"
+
+if __name__ == "__main__":
+    node = None
+    peers = []
+    if "--networked" in sys.argv:
+        node_port = get_node_port(sys.argv)
+        peers = get_peers_ports(sys.argv)
+        print(f"Creating node on port {node_port} and peers = {peers}")
+        node = Node(LOCALHOST, node_port)
+        node.start()
+        for p in peers:
+            node.connect_with_node(LOCALHOST, p)
+
+    if peers == []:
+        blockchain = Blockchain(
+            _difficulty=1,
+            _target=(2**256) - 1,
+            _expected_block_time=2,
+            _recalculate_every_x_blocks=10,
+            _xth_last_block_time=0,  # init
+            _blocks=[],
+            _accounts=[],
+        )
+
+        blockchain.load_state()
+        accounts = blockchain.accounts
+        node.blockchain = blockchain
+
+    else:
+        blockchain = Blockchain(
+            _difficulty=1,
+            _target=(2**256) - 1,
+            _expected_block_time=2,
+            _recalculate_every_x_blocks=10,
+            _xth_last_block_time=0,  # init
+            _blocks=[],
+            _accounts=[],
+        )
+        node.blockchain = blockchain
+        while len(node.blockchain.blocks) == 0: # waiting to receive state from peers.
+            sleep(1)
+        
+        accounts = node.blockchain.accounts
+
+    while True:
+        block = Block(
+            _number=blockchain.blocks[-1].number + 1,
+            _timestamp=0,
+            _nonce=0,
+            _prev_hash=blockchain.blocks[-1].get_block_hash(),
+            _txs=[],
+        )
+        execute_block(accounts, block)
+        block.mine_nonce(blockchain.target, node)
+        if not node.block_found_by_peer:
+            blockchain.add_block(block)
+            #node.send_to_nodes({"message": f"{node_port} found a block!"})
+            node.send_to_nodes({"message": blockchain.save_state()})
+        # if found by peer handled in callback.
+        prev_hash = blockchain.blocks[-1].get_block_hash()
+    
+    # blockchain.save_state()
+
+
+
+
+
+
+"""    a = accounts[0]
     data = {
         "code": "def constructor():\n\tpass\ndef set_a(n):\n\tglobal a; a = increment(n)\ndef increment(x):\n\t return x + 1",
         "variables": {"a": 0},
@@ -180,18 +238,4 @@ if __name__ == "__main__":
 
     read_contract(accounts, deploy_address_erc20, "ticker")
     read_contract(accounts, deploy_address_erc20, "balances")
-
-    """for i in range(30):
-        block = Block(
-            _number=blockchain.blocks[-1].number + 1,
-            _timestamp=0,
-            _nonce=0,
-            _prev_hash=blockchain.blocks[-1].get_block_hash(),
-            _txs=[],
-        )
-        execute_block(accounts, block)
-        block.mine_nonce(blockchain.target)
-        blockchain.add_block(block)
-        prev_hash = blockchain.blocks[-1].get_block_hash()
-    """
-    # blockchain.save_state()
+"""

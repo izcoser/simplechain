@@ -2,6 +2,7 @@ import os
 from block.block import Block
 from account.account import Account, generate_accounts
 from time import time
+import json
 
 
 class Blockchain:
@@ -63,13 +64,13 @@ class Blockchain:
     def recalculate_target(self):
         self.target = ((2**256) - 1) / self.difficulty
 
-    def save_state(self):
+    def save_state(self, write_file=False) -> dict:
         state = {
             "difficulty": self.difficulty,
             "target": self.target,
             "recalculate_every_x_blocks": self.recalculate_every_x_blocks,
             "xth_last_block_time": self.xth_last_block_time
-            or self.blocks[-self.recalculate_every_x_blocks].timestamp,
+            or (self.blocks[-self.recalculate_every_x_blocks].timestamp if len(self.blocks) >= self.recalculate_every_x_blocks else self.genesis_time),
             "last_block_time": self.blocks[-1].timestamp,
             "last_block_number": self.blocks[-1].number,
             "last_block_hash": self.blocks[-1].get_block_hash(),
@@ -77,13 +78,19 @@ class Blockchain:
             "expected_block_time": self.expected_block_time,
             "accounts": [a.serialize() for a in self.accounts],
         }
-        with open("state.json", "w") as s:
-            s.write(json.dumps(state))
+        if write_file:
+            with open("state.json", "w") as s:
+                s.write(json.dumps(state))
+        return state
 
-    def load_state(self):
-        if os.path.isfile("state.json"):
-            with open("state.json", "r") as s:
-                state = json.load(s)
+    def load_state(self, state_dict={}):
+        if os.path.isfile("state.json") or state_dict != {}:
+            if os.path.isfile("state.json"):
+                with open("state.json", "r") as s:
+                    state = json.load(s)
+            else:
+                state = state_dict
+
             self.difficulty = state["difficulty"]
             self.target = state["target"]
             self.recalculate_every_x_blocks = state["recalculate_every_x_blocks"]

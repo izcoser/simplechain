@@ -1,5 +1,6 @@
 from transaction.transaction import Transaction
 from time import time
+from node.node import Node
 import hashlib
 
 
@@ -33,10 +34,10 @@ class Block:
             ).hexdigest()
 
     # Will try to find a nonce such that the block hash < {target}.
-    def mine_nonce(self, target):
+    def mine_nonce(self, target: int, node: Node):
         i = 0
         print(f"Looking for nonce such that hash < {target}")
-        while True:
+        while not node.block_found_by_peer:
             self.nonce = i
             self.timestamp = time()
             h = self.get_block_hash()

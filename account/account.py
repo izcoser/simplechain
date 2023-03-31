@@ -4,7 +4,7 @@ from eth_account.messages import encode_defunct
 import json
 import hashlib
 
-ADDR_COUNT = 256
+ADDR_COUNT = 3
 ZERO_ADDRESS = "0x" + "0" * 40
 
 
