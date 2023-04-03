@@ -24,12 +24,16 @@ class Blockchain:
         self.blocks = _blocks
         self.genesis_time = time()
         self.accounts = _accounts
+        self.new_blocks = []
+        self.load_state()
 
     def add_block(self, _block: Block):
         assert int(_block.get_block_hash(), 16) < self.target
         if len(self.blocks) > 0:
-            assert _block.prev_hash == self.blocks[-1].get_block_hash()
+            #print(f"_block.number: {_block.number}")
+            #print(f"self.blocks[-1].number + 1: {self.blocks[-1].number + 1}")
             assert _block.number == self.blocks[-1].number + 1
+            assert _block.prev_hash == self.blocks[-1].get_block_hash()
             assert _block.timestamp >= self.blocks[-1].timestamp
 
         block_time = (
@@ -82,8 +86,14 @@ class Blockchain:
             with open("state.json", "w") as s:
                 s.write(json.dumps(state))
         return state
+    
+    # If a state is given in `state.json` or passed as state_dict, 
+    # the blockchain syncs to that state by setting all accounts values.
+    # Else, it will just generate accounts empty accounts.
+    # In both cases, an empty block is added so add_block() can
+    # check information from the previous block.
 
-    def load_state(self, state_dict={}):
+    def load_state(self, state_dict: dict ={}):
         if os.path.isfile("state.json") or state_dict != {}:
             if os.path.isfile("state.json"):
                 with open("state.json", "r") as s:
@@ -125,3 +135,12 @@ class Blockchain:
             )
             self.blocks.append(b)
             self.accounts = generate_accounts()
+
+    def append_new_blocks(self):
+        if self.new_blocks:
+            print("Appending blocks found by others.")
+            for block_dict in self.new_blocks:
+                self.add_block(Block(_block_dict=block_dict))
+            self.new_blocks = []
+        else:
+            print("No blocks to add.")

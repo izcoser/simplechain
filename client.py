@@ -128,6 +128,7 @@ LOCALHOST = "127.0.0.1"
 if __name__ == "__main__":
     node = None
     peers = []
+    mine = "--mine" in sys.argv
     if "--networked" in sys.argv:
         node_port = get_node_port(sys.argv)
         peers = get_peers_ports(sys.argv)
@@ -138,52 +139,65 @@ if __name__ == "__main__":
             node.connect_with_node(LOCALHOST, p)
 
     if peers == []:
+        # No peers. Start a new blockchain from scratch.
         blockchain = Blockchain(
             _difficulty=1,
             _target=(2**256) - 1,
-            _expected_block_time=2,
+            _expected_block_time=10,
             _recalculate_every_x_blocks=10,
             _xth_last_block_time=0,  # init
             _blocks=[],
             _accounts=[],
         )
 
-        blockchain.load_state()
-        accounts = blockchain.accounts
         node.blockchain = blockchain
 
     else:
+        print("Peer list detected. Will sync chain.")
         blockchain = Blockchain(
             _difficulty=1,
             _target=(2**256) - 1,
-            _expected_block_time=2,
+            _expected_block_time=10,
             _recalculate_every_x_blocks=10,
             _xth_last_block_time=0,  # init
             _blocks=[],
             _accounts=[],
         )
         node.blockchain = blockchain
-        while len(node.blockchain.blocks) == 0: # waiting to receive state from peers.
-            sleep(1)
-        
-        accounts = node.blockchain.accounts
+        node.blockchain.synced = False
 
-    while True:
-        block = Block(
-            _number=blockchain.blocks[-1].number + 1,
-            _timestamp=0,
-            _nonce=0,
-            _prev_hash=blockchain.blocks[-1].get_block_hash(),
-            _txs=[],
-        )
-        execute_block(accounts, block)
-        block.mine_nonce(blockchain.target, node)
-        if not node.block_found_by_peer:
-            blockchain.add_block(block)
-            #node.send_to_nodes({"message": f"{node_port} found a block!"})
-            node.send_to_nodes({"message": blockchain.save_state()})
-        # if found by peer handled in callback.
-        prev_hash = blockchain.blocks[-1].get_block_hash()
+        # Wait for a peer to send the blockchain state.
+        while not node.blockchain.synced:
+            print("Waiting to sync.")
+            sleep(1)
+
+        print("Blockchain synced.")
+
+    if mine:
+        while True:
+            block = Block(
+                _number=node.blockchain.blocks[-1].number + 1,
+                _timestamp=0,
+                _nonce=0,
+                _prev_hash=node.blockchain.blocks[-1].get_block_hash(),
+                _txs=[],
+            )
+            execute_block(node.blockchain.accounts, block)
+            block.mine_nonce(node.blockchain.target, node)
+            
+            if node.block_found_by_peer:
+                # new_block is stored as JSON in call back.
+                node.blockchain.append_new_blocks()
+                node.block_found_by_peer = False
+            else:
+                blockchain.add_block(block)
+                node.send_to_nodes({"new_block": block.to_dict()})
+            
+            prev_hash = node.blockchain.blocks[-1].get_block_hash()
+    else:
+        while True:
+            print(f"Watching blockchain. Current block: {node.blockchain.blocks[-1].number}")
+            sleep(4)
     
     # blockchain.save_state()
 
@@ -238,4 +252,23 @@ if __name__ == "__main__":
 
     read_contract(accounts, deploy_address_erc20, "ticker")
     read_contract(accounts, deploy_address_erc20, "balances")
+"""
+
+
+"""
+    else:
+        blockchain = Blockchain(
+            _difficulty=1,
+            _target=(2**256) - 1,
+            _expected_block_time=2,
+            _recalculate_every_x_blocks=10,
+            _xth_last_block_time=0,  # init
+            _blocks=[],
+            _accounts=[],
+        )
+        node.blockchain = blockchain
+        while len(node.blockchain.blocks) == 0: # waiting to receive state from peers.
+            sleep(1)
+        
+        accounts = node.blockchain.accounts
 """
