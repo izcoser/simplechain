@@ -1,8 +1,15 @@
 import os
 from block.block import Block
-from account.account import Account, generate_accounts
+from account.account import Account, generate_accounts, ZERO_ADDRESS
 from time import time
 import json
+
+
+def get_account(accounts: list[Account], address: str) -> Account:
+    for a in accounts:
+        if a.address == address:
+            return a
+    raise AccountNotFound()
 
 
 class Blockchain:
@@ -127,11 +134,50 @@ class Blockchain:
             self.blocks.append(b)
             self.accounts = generate_accounts()
 
+    def execute_block(self, block: Block):
+        accounts = self.accounts
+        for t in block.txs:
+            fr_account = get_account(accounts, t.fr)
+            to_account = get_account(accounts, t.to)
+
+            if t.amount > fr_account.balance:
+                print("Can't process transaction, amount more than balance.")
+                # Raise InsufficientBalance()
+                continue
+
+            if not t.verify_signature():
+                print("Can't verify signature.")
+                continue
+
+            if t.nonce != fr_account.nonce:
+                print(
+                    f"Transaction nonce ({t.nonce}) differs from account nonce ({fr_account.nonce}). "
+                )
+                continue
+
+            fr_account.balance -= t.amount
+            to_account.balance += t.amount
+            fr_account.nonce += 1
+
+            if t.to == ZERO_ADDRESS and t.data != {}:  # contract creation
+                deploy_address = (
+                    "0x"
+                    + hashlib.sha256((t.fr + str(t.nonce)).encode()).hexdigest()[:40]
+                )
+                deploy_contract(
+                    t.fr, t.data["code"], t.data["variables"], deploy_address, accounts
+                )
+
+            elif to_account.code != "" and t.data != {}:  # contract call
+                call_contract(accounts, t.fr, t.to, t.data["call"])
+
     def append_new_blocks(self):
         if self.new_blocks:
             print("Appending blocks found by others.")
             for block_dict in self.new_blocks:
-                self.add_block(Block(_block_dict=block_dict))
+                b = Block(_block_dict=block_dict)
+                self.execute_block(b)
+                self.add_block(b)
             self.new_blocks = []
         else:
             print("No blocks to add.")

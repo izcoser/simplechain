@@ -62,42 +62,6 @@ def get_account(accounts: list[Account], address: str) -> Account:
     raise AccountNotFound()
 
 
-def execute_block(accounts: list[Account], block: Block):
-    for t in block.txs:
-        fr_account = get_account(accounts, t.fr)
-        to_account = get_account(accounts, t.to)
-
-        if t.amount > fr_account.balance:
-            print("Can't process transaction, amount more than balance.")
-            # Raise InsufficientBalance()
-            continue
-
-        if not t.verify_signature():
-            print("Can't verify signature.")
-            continue
-
-        if t.nonce != fr_account.nonce:
-            print(
-                f"Transaction nonce ({t.nonce}) differs from account nonce ({fr_account.nonce}). "
-            )
-            continue
-
-        fr_account.balance -= t.amount
-        to_account.balance += t.amount
-        fr_account.nonce += 1
-
-        if t.to == ZERO_ADDRESS and t.data != {}:  # contract creation
-            deploy_address = (
-                "0x" + hashlib.sha256((t.fr + str(t.nonce)).encode()).hexdigest()[:40]
-            )
-            deploy_contract(
-                t.fr, t.data["code"], t.data["variables"], deploy_address, accounts
-            )
-
-        elif to_account.code != "" and t.data != {}:  # contract call
-            call_contract(accounts, t.fr, t.to, t.data["call"])
-
-
 """
     def a(x):
         b += x
@@ -186,7 +150,7 @@ if __name__ == "__main__":
                 _prev_hash=node.blockchain.blocks[-1].get_block_hash(),
                 _txs=node.blockchain.pending_txs,
             )
-            execute_block(node.blockchain.accounts, block)
+
             block.mine_nonce(node.blockchain.target, node)
 
             if node.block_found_by_peer:
@@ -194,7 +158,8 @@ if __name__ == "__main__":
                 node.blockchain.append_new_blocks()
                 node.block_found_by_peer = False
             else:
-                blockchain.add_block(block)
+                node.blockchain.execute_block(block)
+                node.blockchain.add_block(block)
                 print("broadcasting block to peers: ", block.to_dict())
                 node.send_to_nodes({"new_block": block.to_dict()})
 
@@ -205,21 +170,24 @@ if __name__ == "__main__":
             node.blockchain.pending_txs = []
 
     else:
-        a = node.blockchain.accounts[0]
-        b = node.blockchain.accounts[1]
-        nonce = 0
+        # a = node.blockchain.accounts[0]
+        # b = node.blockchain.accounts[1]
+        # nonce = 0
         while True:
-            val = int(
-                input(
-                    f"Enter a transaction value from account 0 {a.short_address()} to account 1: "
-                )
+            # val = int(
+            #    input(
+            #        f"Enter a transaction value from account 0 {a.short_address()} to account 1: "
+            #    )
+            # )
+            # (tx, _) = a.send_transaction(to=b.address, amount=val, nonce=nonce)
+            # print(tx.__dict__)
+            # node.send_to_nodes({"new_tx": tx.__dict__})
+            # nonce += 1
+            print(
+                f"Watching blockchain. Current block: {node.blockchain.blocks[-1].number}"
             )
-            (tx, _) = a.send_transaction(to=b.address, amount=val, nonce=nonce)
-            print(tx.__dict__)
-            node.send_to_nodes({"new_tx": tx.__dict__})
-            nonce += 1
-            # print(f"Watching blockchain. Current block: {node.blockchain.blocks[-1].number}")
-            # sleep(4)
+            node.blockchain.append_new_blocks()
+            sleep(4)
 
     # blockchain.save_state()
 
