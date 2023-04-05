@@ -46,8 +46,7 @@ class Block:
             self.timestamp = time()
             h = self.get_block_hash()
             if int(h, 16) < target:
-                print(f"Found nonce {i} that makes SHA256(block {self.number}) < {target}:")
-                #print(h)
+                print(f"Found nonce {i}.")
                 break
             else:
                 i += 1

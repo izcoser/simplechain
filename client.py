@@ -159,7 +159,7 @@ if __name__ == "__main__":
             _target=(2**256) - 1,
             _expected_block_time=10,
             _recalculate_every_x_blocks=10,
-            _xth_last_block_time=0,  # init
+            _xth_last_block_time=time(),  # init
             _blocks=[],
             _accounts=[],
         )

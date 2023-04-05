@@ -30,8 +30,6 @@ class Blockchain:
     def add_block(self, _block: Block):
         assert int(_block.get_block_hash(), 16) < self.target
         if len(self.blocks) > 0:
-            #print(f"_block.number: {_block.number}")
-            #print(f"self.blocks[-1].number + 1: {self.blocks[-1].number + 1}")
             assert _block.number == self.blocks[-1].number + 1
             assert _block.prev_hash == self.blocks[-1].get_block_hash()
             assert _block.timestamp >= self.blocks[-1].timestamp
@@ -47,23 +45,19 @@ class Blockchain:
         self.blocks.append(_block)
 
         if (
-            self.blocks[-1].number % self.recalculate_every_x_blocks == 0
-            and self.blocks[-1].number > 0
+            _block.number % self.recalculate_every_x_blocks == 0
+            and _block.number > 0
         ):
             print("Recalculating difficulty.")
             self.recalculate_difficulty()
             self.recalculate_target()
+            self.xth_last_block_time = _block.timestamp
 
     def recalculate_difficulty(self):
         last_block_time = self.blocks[-1].timestamp
-        xth_last_block_time = (
-            self.blocks[-self.recalculate_every_x_blocks].timestamp
-            if len(self.blocks) >= self.recalculate_every_x_blocks
-            else self.xth_last_block_time
-        )
         self.difficulty *= (
             self.recalculate_every_x_blocks * self.expected_block_time
-        ) / (last_block_time - xth_last_block_time)
+        ) / (last_block_time - self.xth_last_block_time)
 
     def recalculate_target(self):
         self.target = ((2**256) - 1) / self.difficulty
@@ -73,8 +67,7 @@ class Blockchain:
             "difficulty": self.difficulty,
             "target": self.target,
             "recalculate_every_x_blocks": self.recalculate_every_x_blocks,
-            "xth_last_block_time": self.xth_last_block_time
-            or (self.blocks[-self.recalculate_every_x_blocks].timestamp if len(self.blocks) >= self.recalculate_every_x_blocks else self.genesis_time),
+            "xth_last_block_time": self.xth_last_block_time,
             "last_block_time": self.blocks[-1].timestamp,
             "last_block_number": self.blocks[-1].number,
             "last_block_hash": self.blocks[-1].get_block_hash(),
