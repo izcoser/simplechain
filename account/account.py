@@ -53,7 +53,9 @@ class Account:
             text=f"{self.address}{to}({amount})({nonce})({gas_price})({json.dumps(data)})"
         )
         signature = (
-            web3_account.from_key(self.private_key).sign_message(message).signature
+            web3_account.from_key(self.private_key)
+            .sign_message(message)
+            .signature.hex()
         )
         return (
             Transaction(
@@ -71,7 +73,10 @@ class Account:
         )
 
     def __str__(self) -> str:
-        return f"Addr: {self.address[:5]}...{self.address[-3:]}, Balance: {self.balance}, Nonce: {self.nonce}, PK: {self.private_key[:5]}...{self.private_key[-3:]}"
+        return f"Addr: {self.short_address()}, Balance: {self.balance}, Nonce: {self.nonce}, PK: {self.private_key[:5]}...{self.private_key[-3:]}"
+
+    def short_address(self) -> str:
+        return f"{self.address[:5]}...{self.address[-3:]}"
 
     def serialize(self) -> str:
         account_json = {
@@ -87,5 +92,6 @@ class Account:
 
 def generate_accounts() -> list[Account]:
     return [
-        Account(_private_key="0x" + str(i + 1).zfill(64)) for i in range(ADDR_COUNT)
+        Account(_private_key="0x" + str(i + 1).zfill(64), _balance=100)
+        for i in range(ADDR_COUNT)
     ] + [Account(_address=ZERO_ADDRESS)]

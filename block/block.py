@@ -4,6 +4,7 @@ from node.node import Node
 import hashlib
 import json
 
+
 class Block:
     def __init__(
         self,
@@ -52,7 +53,9 @@ class Block:
                 i += 1
 
     def to_dict(self) -> dict:
-        return self.__dict__
+        d = self.__dict__.copy()
+        d["txs"] = [t.__dict__ for t in d["txs"]]
+        return d
 
     def from_dict(self, block: dict):
         self.number = block["number"]

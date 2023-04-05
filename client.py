@@ -8,6 +8,7 @@ from block.block import Block
 from blockchain.blockchain import Blockchain
 from node.node import Node
 
+
 class AccountNotFound(Exception):
     "Raised when an account is not found on the list of accounts."
     pass
@@ -111,17 +112,20 @@ data = {
 When calling, the code will be ran with exec(code + \ny(k))
 """
 
+
 def get_node_port(args: list[str]) -> int:
     for a in args:
-        if a.startswith('--port='):
-            return int(a.replace('--port=', ''))
+        if a.startswith("--port="):
+            return int(a.replace("--port=", ""))
     return -1
+
 
 def get_peers_ports(args: list[str]) -> list[int]:
     for a in args:
-        if a.startswith('--peers='):
-            return [int(i) for i in a.replace('--peers=', '').split(',')]
+        if a.startswith("--peers="):
+            return [int(i) for i in a.replace("--peers=", "").split(",")]
     return []
+
 
 LOCALHOST = "127.0.0.1"
 
@@ -180,30 +184,44 @@ if __name__ == "__main__":
                 _timestamp=0,
                 _nonce=0,
                 _prev_hash=node.blockchain.blocks[-1].get_block_hash(),
-                _txs=[],
+                _txs=node.blockchain.pending_txs,
             )
             execute_block(node.blockchain.accounts, block)
             block.mine_nonce(node.blockchain.target, node)
-            
+
             if node.block_found_by_peer:
                 # new_block is stored as JSON in call back.
                 node.blockchain.append_new_blocks()
                 node.block_found_by_peer = False
             else:
                 blockchain.add_block(block)
+                print("broadcasting block to peers: ", block.to_dict())
                 node.send_to_nodes({"new_block": block.to_dict()})
-            
+
             prev_hash = node.blockchain.blocks[-1].get_block_hash()
+
+            # processed_txs = block.to_dict()['txs']
+            # node.blockchain.pending_txs = [t for t in node.blockchain.pending_txs if t.__dict__ not in processed_txs]
+            node.blockchain.pending_txs = []
+
     else:
+        a = node.blockchain.accounts[0]
+        b = node.blockchain.accounts[1]
+        nonce = 0
         while True:
-            print(f"Watching blockchain. Current block: {node.blockchain.blocks[-1].number}")
-            sleep(4)
-    
+            val = int(
+                input(
+                    f"Enter a transaction value from account 0 {a.short_address()} to account 1: "
+                )
+            )
+            (tx, _) = a.send_transaction(to=b.address, amount=val, nonce=nonce)
+            print(tx.__dict__)
+            node.send_to_nodes({"new_tx": tx.__dict__})
+            nonce += 1
+            # print(f"Watching blockchain. Current block: {node.blockchain.blocks[-1].number}")
+            # sleep(4)
+
     # blockchain.save_state()
-
-
-
-
 
 
 """    a = accounts[0]

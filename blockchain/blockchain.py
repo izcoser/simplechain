@@ -25,6 +25,7 @@ class Blockchain:
         self.genesis_time = time()
         self.accounts = _accounts
         self.new_blocks = []
+        self.pending_txs = []
         self.load_state()
 
     def add_block(self, _block: Block):
@@ -44,10 +45,7 @@ class Blockchain:
         )
         self.blocks.append(_block)
 
-        if (
-            _block.number % self.recalculate_every_x_blocks == 0
-            and _block.number > 0
-        ):
+        if _block.number % self.recalculate_every_x_blocks == 0 and _block.number > 0:
             print("Recalculating difficulty.")
             self.recalculate_difficulty()
             self.recalculate_target()
@@ -79,14 +77,14 @@ class Blockchain:
             with open("state.json", "w") as s:
                 s.write(json.dumps(state))
         return state
-    
-    # If a state is given in `state.json` or passed as state_dict, 
+
+    # If a state is given in `state.json` or passed as state_dict,
     # the blockchain syncs to that state by setting all accounts values.
     # Else, it will just generate accounts empty accounts.
     # In both cases, an empty block is added so add_block() can
     # check information from the previous block.
 
-    def load_state(self, state_dict: dict ={}):
+    def load_state(self, state_dict: dict = {}):
         if os.path.isfile("state.json") or state_dict != {}:
             if os.path.isfile("state.json"):
                 with open("state.json", "r") as s:
