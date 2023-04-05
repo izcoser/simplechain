@@ -20,15 +20,16 @@ Account             Transaction         Block
 | Storage**         | Data**
                     | Gas Price
 
-                    Blockchain
-                    | Difficulty
-                    | Target
-                    | Expected Block Time
+                    Blockchain                      Node
+                    | Difficulty                    | Blockchain
+                    | Target                        | Synced
+                    | Expected Block Time           | Block_Found_By_Peer***
                     | Blocks (list[Block])
                     | Accounts (list[Account])
 
 * derived from Private Keys with SECP256k1 curves
 ** for smart contracts.
+*** when true, the node stops mining and includes a peer block instead. Variable is immediately set to False afterwards.
 ```
 
 Blocks are published on a Poisson distribution around every ```Expected Block Time``` seconds as someone finds a block with a SHA256 hash H such that H < ```Target``` = ```((2**256) -1) / Difficulty ```. The state of the blockchain is saved by dumping the entire serialized list of accounts, as well as current difficulty, target, and some others.
@@ -71,7 +72,36 @@ Storage before: {'ticker': 'BTC', 'name': 'Bitcoin', 'supply': 21000000, 'balanc
 Storage after: {'ticker': 'BTC', 'name': 'Bitcoin', 'supply': 21000000, 'balances': {'0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf': 11000000, '0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF': 10000000}, 'allowances': ''}
 ```
 In the current implementation, we just concatenate whatever the user passes as value of ```call``` to the contract code. This would allow ACE or Arbitrary Code Execution, but it's an easy fix. 
-Currently no network support.
+
+Nodes can connect to each other on a peer-to-peer network. Executing:
+
+```
+python client.py --networked --port={my port} --peers={comma separated list of peer ports} --mine
+```
+
+a node is started at ```127.0.0.1:{my port}``` and connects to all peers on ```127.0.0.1:{list of ports}```.
+
+If no peers exist, use:
+
+```
+python client.py --networked --port={my port} --mine
+```
+
+to start a chain from scratch.
+
+When at least one node is running at port 10000, you can run:
+
+```
+python send.py --from=0 --to=1 --val=10
+```
+
+to insert a pending transaction of 10 tokens from ```node.blockchain.accounts[0]``` to ```node.blockchain.accounts[1]``` in the mempool.
+
+Each accounts starts with a balance of 100. After a block is mined with that transaction, you can check the updated balances by running:
+
+```
+python read_balance.py
+```
 
 ## Progress
 
@@ -82,7 +112,8 @@ Currently no network support.
 * [x] Proof of Work for block creation.
 * [X] Turing Complete Smart Contract support.
 * [X] Create an ERC-20 clone.
-* [ ] Create a Uniswap clone.
-* [ ] Create socket communication between nodes & send transactions.
-* [ ] Create a mempool for pending transactions.
+* [X] Add peer-to-peer communication with the library [p2pnetwork](https://github.com/macsnoeren/python-p2p-network/).
+* [X] Create a mempool for pending transactions.
+* [X] Add interaction scripts to send transactions and read blockchain data.
 * [ ] Allow contracts to call other contracts.
+* [ ] Create a Uniswap clone.
